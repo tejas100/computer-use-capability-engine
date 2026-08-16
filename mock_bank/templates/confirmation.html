@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CU-Ops Console :: Confirmation</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="systembar">
+    <span class="apptitle">CU-OPS CONSOLE</span>
+    <span class="meta">Session: {{ session_id }} | {{ build_tag }}</span>
+</div>
+<div class="breadcrumb">
+    <a href="/search">Home</a> &gt; <a href="/member/{{ member_id }}">Record {{ member_id }}</a> &gt; Confirmation
+</div>
+
+<div class="pagewrap">
+    <div class="panel">
+        <div class="panel-title">Sub-Account Opened</div>
+        <div class="panel-body">
+
+            <div class="msg-success">
+                New sub-account successfully opened for {{ member.name }}.
+            </div>
+
+            <table class="fieldtable">
+                <tr><td class="label">Confirmation Number:</td><td id="confirmation-number"><b>{{ confirmation_number }}</b></td></tr>
+                <tr><td class="label">Member:</td><td>{{ member.name }} ({{ member_id }})</td></tr>
+                <tr><td class="label">Account Type:</td><td>{{ account_type }}</td></tr>
+                <tr><td class="label">Initial Deposit:</td><td>${{ "%.2f"|format(initial_deposit) }}</td></tr>
+            </table>
+
+            <p style="margin-top:14px;"><a href="/member/{{ member_id }}">&laquo; Back to Record</a></p>
+
+        </div>
+    </div>
+    <div class="footerbar">CU-Ops Console &mdash; Internal Use Only &mdash; Do Not Distribute</div>
+</div>
+
+</body>
+</html>

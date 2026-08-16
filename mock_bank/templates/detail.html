@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CU-Ops Console :: Member Record</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="systembar">
+    <span class="apptitle">CU-OPS CONSOLE</span>
+    <span class="meta">Session: {{ session_id }} | {{ build_tag }}</span>
+</div>
+<div class="breadcrumb">
+    <a href="/search">Home</a> &gt; <a href="/search">Member Search</a> &gt; Record {{ member_id }}
+</div>
+
+<div class="pagewrap">
+    <div class="panel">
+        <div class="panel-title">Member Record :: {{ member_id }}</div>
+        <div class="panel-body">
+
+            {% if member is none %}
+                <div class="msg-warn">No member found for ID "{{ member_id }}". This is not a system error &mdash; the ID may be mistyped or the member may not exist in this branch.</div>
+                <p><a href="/search">&laquo; Back to Search</a></p>
+            {% else %}
+
+                <table>
+                    <tr>
+                        <td valign="top" width="55%">
+                            <table class="fieldtable">
+                                <tr><td class="label">Full Name:</td><td><b>{{ member.name }}</b></td></tr>
+                                <tr><td class="label">Member ID:</td><td>{{ member_id }}</td></tr>
+                                <tr><td class="label">Account Status:</td><td class="status-{{ member.status }}">{{ member.status|upper }}</td></tr>
+                                <tr><td class="label">Phone on File:</td><td>{{ member.phone }}</td></tr>
+                            </table>
+                        </td>
+                        <td valign="top" width="45%">
+                            <table class="fieldtable" style="border:1px solid #c6c6c6;">
+                                <tr>
+                                    <td colspan="2" style="background-color:#eef1f4; font-weight:bold; padding:6px;">Savings Account</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Current Balance:</td>
+                                    <td id="balance-value"><b>${{ "%.2f"|format(member.savings_balance) }}</b></td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+                <div class="actionlinks" style="margin-top:14px;">
+                    <a href="/member/{{ member_id }}/update-phone">Update Phone Number</a>
+                    <a href="/member/{{ member_id }}/open-account">Open Sub-Account</a>
+                    <a href="/search">Back to Search</a>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </div>
+    <div class="footerbar">CU-Ops Console &mdash; Internal Use Only &mdash; Do Not Distribute</div>
+</div>
+
+</body>
+</html>

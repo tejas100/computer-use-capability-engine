@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CU-Ops Console :: Member Search</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="systembar">
+    <span class="apptitle">CU-OPS CONSOLE</span>
+    <span class="meta">Session: {{ session_id }} | {{ build_tag }}</span>
+</div>
+<div class="breadcrumb">
+    <a href="/search">Home</a> &gt; Member Search
+</div>
+
+<div class="pagewrap">
+    <div class="panel">
+        <div class="panel-title">Member Search</div>
+        <div class="panel-body">
+
+            <form method="POST" action="/search">
+                <table class="fieldtable">
+                    <tr>
+                        <td class="label">Member ID:</td>
+                        <td><input type="text" name="member_id" value="{{ query }}"></td>
+                        <td><button type="submit">Search</button></td>
+                    </tr>
+                </table>
+            </form>
+
+            {% if results is not none %}
+                <hr>
+                {% if results|length > 0 %}
+                    <table class="datatable">
+                        <tr>
+                            <th>Member ID</th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>&nbsp;</th>
+                        </tr>
+                        {% for r in results %}
+                        <tr>
+                            <td>{{ r.member_id }}</td>
+                            <td>{{ r.name }}</td>
+                            <td class="status-{{ r.status }}">{{ r.status|upper }}</td>
+                            <td><a href="/member/{{ r.member_id }}">View Record</a></td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                {% else %}
+                    <div class="msg-warn">No member found matching ID "{{ query }}". Verify the ID and try again.</div>
+                {% endif %}
+            {% endif %}
+
+        </div>
+    </div>
+    <div class="footerbar">CU-Ops Console &mdash; Internal Use Only &mdash; Do Not Distribute</div>
+</div>
+
+</body>
+</html>

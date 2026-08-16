@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CU-Ops Console :: Open Sub-Account</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="systembar">
+    <span class="apptitle">CU-OPS CONSOLE</span>
+    <span class="meta">Session: {{ session_id }} | {{ build_tag }}</span>
+</div>
+<div class="breadcrumb">
+    <a href="/search">Home</a> &gt; <a href="/member/{{ member_id }}">Record {{ member_id }}</a> &gt; Open Sub-Account
+</div>
+
+<div class="pagewrap">
+    <div class="panel">
+        <div class="panel-title">Open Sub-Account :: {{ member_id }}</div>
+        <div class="panel-body">
+
+            {% if member is none %}
+                <div class="msg-warn">No member found for ID "{{ member_id }}".</div>
+                <p><a href="/search">&laquo; Back to Search</a></p>
+
+            {% elif requires_approval %}
+                <div class="msg-warn" id="approval-required">
+                    This request requires supervisor approval. Initial deposits of
+                    $10,000.00 or more cannot be processed directly by this terminal.
+                    A supervisor override request has been logged for
+                    {{ member.name }} (Account Type: {{ account_type }},
+                    Requested Deposit: ${{ "%.2f"|format(initial_deposit) }}).
+                </div>
+                <p><a href="/member/{{ member_id }}">&laquo; Back to Record</a></p>
+
+            {% else %}
+                {% if error %}
+                    <div class="msg-error" id="form-error">{{ error }}</div>
+                {% endif %}
+
+                <p>Opening a new sub-account for <b>{{ member.name }}</b> (Member ID {{ member_id }}).</p>
+
+                <form method="POST" action="/member/{{ member_id }}/open-account" onsubmit="return confirm('Confirm: open a new sub-account for this member?');">
+                    <table class="fieldtable">
+                        <tr>
+                            <td class="label">Account Type:</td>
+                            <td>
+                                <select name="account_type">
+                                    <option value="savings">Savings</option>
+                                    <option value="money_market">Money Market</option>
+                                    <option value="cd">Certificate of Deposit</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="label">Initial Deposit ($):</td>
+                            <td><input type="text" name="initial_deposit" placeholder="0.00"></td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td><button type="submit">Open Account</button></td>
+                        </tr>
+                    </table>
+                </form>
+                <p><a href="/member/{{ member_id }}">&laquo; Cancel, back to Record</a></p>
+            {% endif %}
+
+        </div>
+    </div>
+    <div class="footerbar">CU-Ops Console &mdash; Internal Use Only &mdash; Do Not Distribute</div>
+</div>
+
+</body>
+</html>

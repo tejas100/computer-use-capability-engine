@@ -1,0 +1,186 @@
+/*
+CU-Ops Console -- intentionally dated internal-tool visual identity.
+Table-based content structure lives in the templates themselves, not
+here, since the "no clean DOM" story is about markup, not CSS. This
+file just keeps the thing from looking like bare unstyled HTML.
+*/
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #e8e8e8;
+    font-family: Verdana, Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #222222;
+}
+
+/* top system bar */
+.systembar {
+    background-color: #1a3c5e;
+    color: #ffffff;
+    padding: 6px 14px;
+    font-size: 11px;
+    border-bottom: 3px solid #0f2740;
+}
+
+.systembar .apptitle {
+    font-weight: bold;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+}
+
+.systembar .meta {
+    float: right;
+    color: #b7c8da;
+}
+
+/* breadcrumb */
+.breadcrumb {
+    background-color: #d6dde3;
+    border-bottom: 1px solid #aab7c2;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: #4a5a68;
+}
+
+.breadcrumb a {
+    color: #1a3c5e;
+    text-decoration: none;
+}
+
+.breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+/* content wrapper, fixed-ish width, table era */
+.pagewrap {
+    width: 960px;
+    margin: 16px auto;
+}
+
+.panel {
+    background-color: #ffffff;
+    border: 1px solid #b3b3b3;
+    padding: 0;
+}
+
+.panel-title {
+    background-color: #ccd8e4;
+    border-bottom: 1px solid #b3b3b3;
+    padding: 6px 10px;
+    font-weight: bold;
+    font-size: 13px;
+    color: #1a3c5e;
+}
+
+.panel-body {
+    padding: 14px;
+}
+
+table.datatable {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 6px;
+}
+
+table.datatable th {
+    background-color: #eef1f4;
+    border: 1px solid #c6c6c6;
+    text-align: left;
+    padding: 5px 8px;
+    font-size: 11px;
+}
+
+table.datatable td {
+    border: 1px solid #c6c6c6;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+table.fieldtable {
+    border-collapse: collapse;
+}
+
+table.fieldtable td {
+    padding: 4px 6px;
+    vertical-align: middle;
+}
+
+table.fieldtable td.label {
+    text-align: right;
+    color: #4a4a4a;
+    width: 150px;
+}
+
+input[type=text], input[type=tel], select {
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 12px;
+    padding: 3px 4px;
+    border: 1px solid #999999;
+    width: 220px;
+}
+
+button, input[type=submit] {
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 12px;
+    padding: 4px 14px;
+    background-color: #dfe6ec;
+    border: 1px solid #7c8a97;
+    cursor: pointer;
+}
+
+button:hover, input[type=submit]:hover {
+    background-color: #cddaea;
+}
+
+.msg-error {
+    background-color: #f7dede;
+    border: 1px solid #c96a6a;
+    color: #7a1f1f;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+.msg-success {
+    background-color: #dcf0dc;
+    border: 1px solid #6ea86e;
+    color: #235023;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+.msg-warn {
+    background-color: #fdf0d5;
+    border: 1px solid #cf9a3a;
+    color: #6e4c0f;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+.status-active {
+    color: #235023;
+    font-weight: bold;
+}
+
+.status-frozen {
+    color: #7a1f1f;
+    font-weight: bold;
+}
+
+.footerbar {
+    margin-top: 10px;
+    padding: 6px 14px;
+    font-size: 10px;
+    color: #7a7a7a;
+    border-top: 1px solid #cccccc;
+}
+
+.actionlinks a {
+    display: inline-block;
+    margin-right: 10px;
+    font-size: 12px;
+    color: #1a3c5e;
+}

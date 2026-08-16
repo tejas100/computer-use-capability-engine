@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CU-Ops Console :: Update Phone</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="systembar">
+    <span class="apptitle">CU-OPS CONSOLE</span>
+    <span class="meta">Session: {{ session_id }} | {{ build_tag }}</span>
+</div>
+<div class="breadcrumb">
+    <a href="/search">Home</a> &gt; <a href="/member/{{ member_id }}">Record {{ member_id }}</a> &gt; Update Phone
+</div>
+
+<div class="pagewrap">
+    <div class="panel">
+        <div class="panel-title">Update Phone Number :: {{ member_id }}</div>
+        <div class="panel-body">
+
+            {% if member is none %}
+                <div class="msg-warn">No member found for ID "{{ member_id }}".</div>
+                <p><a href="/search">&laquo; Back to Search</a></p>
+
+            {% elif success %}
+                <div class="msg-success" id="update-success">
+                    Phone number updated successfully for {{ member.name }}.
+                    New number on file: <b>{{ member.phone }}</b>
+                </div>
+                <p><a href="/member/{{ member_id }}">&laquo; Back to Record</a></p>
+
+            {% else %}
+                {% if error %}
+                    <div class="msg-error" id="update-error">{{ error }}</div>
+                {% endif %}
+
+                <p>Current number on file for <b>{{ member.name }}</b>: {{ member.phone }}</p>
+
+                <form method="POST" action="/member/{{ member_id }}/update-phone">
+                    <table class="fieldtable">
+                        <tr>
+                            <td class="label">New Phone Number:</td>
+                            <td><input type="tel" name="new_phone" placeholder="555-000-0000"></td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td><button type="submit">Save Changes</button></td>
+                        </tr>
+                    </table>
+                </form>
+                <p><a href="/member/{{ member_id }}">&laquo; Cancel, back to Record</a></p>
+            {% endif %}
+
+        </div>
+    </div>
+    <div class="footerbar">CU-Ops Console &mdash; Internal Use Only &mdash; Do Not Distribute</div>
+</div>
+
+</body>
+</html>
