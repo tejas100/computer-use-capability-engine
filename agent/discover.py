@@ -26,7 +26,8 @@ from playwright.sync_api import sync_playwright, Page, Dialog
 
 from agent.actions import AgentAction, AgentActionType
 from agent.llm_client import decide_next_action
-from agent.locator_capture import capture_locator
+from agent.locator_capture import capture_locator, find_nearest_interactive_hint
+from agent.grid_overlay import add_grid_overlay
 from schemas.artifact import (
     Artifact, Target, InputParam, ParamType, Step, ActionType, Locator,
     LocatorStrategy, Checkpoint, OutputField, KnownOutcome,
@@ -124,15 +125,19 @@ def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Pa
 
         outcome: Optional[AgentAction] = None
         consecutive_failures = 0
-        MAX_CONSECUTIVE_FAILURES = 3
+        MAX_CONSECUTIVE_FAILURES = 4
 
         for step_num in range(1, MAX_STEPS + 1):
             screenshot_path = run.save_screenshot(page, step_num)
             screenshot_bytes = screenshot_path.read_bytes()
+            # The evidence screenshot stays clean (no grid); the LLM
+            # sees a gridded copy to help it ground pixel coordinates
+            # -- see grid_overlay.py for why this matters.
+            gridded_bytes = add_grid_overlay(screenshot_bytes)
 
             decision = decide_next_action(
                 goal=goal,
-                screenshot_png=screenshot_bytes,
+                screenshot_png=gridded_bytes,
                 history=run.history,
                 dialog_showing=run.pending_dialog_message,
             )
@@ -153,8 +158,8 @@ def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Pa
                 break
 
             try:
-                _execute_action(run, page, decision, step_num)
-                run.history.append(f"Step {step_num}: {decision.action.value} -- {decision.reasoning}")
+                result_desc = _execute_action(run, page, decision, step_num)
+                run.history.append(f"Step {step_num}: {result_desc}")
                 consecutive_failures = 0
             except Exception as e:
                 consecutive_failures += 1
@@ -194,7 +199,12 @@ def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Pa
         return artifact_path
 
 
-def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_num: int) -> None:
+def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_num: int) -> str:
+    """Perform the action and return a short, specific description of
+    what actually happened -- this becomes the history line the model
+    sees next turn, so it must say enough to distinguish "this landed
+    on the real target" from "this landed somewhere ambiguous" instead
+    of just echoing the model's own stated intent back at it."""
     if decision.action == AgentActionType.HANDLE_DIALOG:
         if run.pending_dialog is None:
             raise RuntimeError("handle_dialog called but no dialog is pending")
@@ -205,26 +215,36 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
         run.log({"event": "dialog_handled", "action": decision.dialog_action})
         run.pending_dialog = None
         run.pending_dialog_message = None
-        # Dialogs aren't tied to one specific element on the recorded
-        # page (the trigger is the preceding click's form submission),
-        # so we record dialog handling as an annotation on the prior
-        # step rather than as a new locator-bearing step.
         if run.steps:
             run.steps[-1].description += " (dismisses a confirmation dialog on submit)"
-        return
+        return f"Dialog {decision.dialog_action}ed."
 
     if decision.action == AgentActionType.CLICK:
         locator = capture_locator(page, decision.x, decision.y)
-        # Diagnostic: log what element capture_locator actually found at
-        # these coordinates. If this repeatedly shows BODY/HTML instead
-        # of the element the model intended, that's a coordinate-scaling
-        # mismatch between the screenshot and the click space, not a bad
-        # model decision -- see the device_scale_factor note above.
         run.log({
             "event": "click_target_resolved", "step": step_num,
             "requested_xy": [decision.x, decision.y],
             "resolved_css": locator.value,
         })
+        # A click that resolves to the page background, or to a
+        # non-interactive container (a <td>, a layout <div>), is
+        # treated as a miss -- not just an exact html/body hit. Only
+        # actually-interactive elements (input/button/select/a) count
+        # as landing on something clickable. This closes the gap where
+        # a click on "table > tbody > tr > td" was silently counted as
+        # a success even though clicking a table cell focuses nothing.
+        NON_INTERACTIVE_HINTS = ("html", "body", "table", "tbody", "tr", "td", "div")
+        looks_non_interactive = any(
+            locator.value == h or locator.value.split(" > ")[-1].split(":")[0].split("[")[0] == h
+            for h in NON_INTERACTIVE_HINTS
+        )
+        if looks_non_interactive:
+            hint = find_nearest_interactive_hint(page, decision.x, decision.y)
+            raise RuntimeError(
+                f"Click at ({decision.x}, {decision.y}) resolved to '{locator.value}', which is "
+                f"not an interactive element (input/button/select/link). This click will not focus "
+                f"anything. {hint}"
+            )
         page.mouse.click(decision.x, decision.y)
         page.wait_for_load_state("networkidle", timeout=STEP_TIMEOUT_S * 1000)
         run.steps.append(Step(
@@ -232,7 +252,7 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             description=decision.target_description or decision.reasoning,
             locator=locator, timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
-        return
+        return f"Click SUCCEEDED -- landed on and focused '{locator.value}'."
 
     if decision.action == AgentActionType.TYPE:
         # The field must already be focused (typically by a preceding
@@ -257,7 +277,7 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             description=f"Type '{decision.text}' into {decision.target_description or 'the focused field'}",
             locator=locator, value=decision.text, timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
-        return
+        return f"Type SUCCEEDED -- typed '{decision.text}' into '{locator.value}'."
 
     if decision.action == AgentActionType.NAVIGATE:
         page.goto(decision.url)
@@ -265,7 +285,7 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             step_id=f"s{step_num}", action=ActionType.NAVIGATE,
             description=decision.reasoning, url=decision.url,
         ))
-        return
+        return f"Navigated to {decision.url}."
 
     if decision.action == AgentActionType.PRESS_KEY:
         page.keyboard.press(decision.key)
@@ -274,7 +294,7 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             step_id=f"s{step_num}", action=ActionType.WAIT_FOR,
             description=f"Press {decision.key}", timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
-        return
+        return f"Pressed key '{decision.key}'."
 
     raise RuntimeError(f"Unhandled action type: {decision.action}")
 

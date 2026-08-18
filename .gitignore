@@ -6,3 +6,7 @@ evidence/*.png
 node_modules/
 .pytest_cache/
 *.log
+
+evidence/
+
+.DS_Store

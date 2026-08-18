@@ -1,0 +1,169 @@
+{
+  "capability": "get_member_balance",
+  "version": 1,
+  "description": "Look up a member by ID and read their current savings balance.",
+  "target": {
+    "base_url": "http://127.0.0.1:5000",
+    "app_name": "mock_bank"
+  },
+  "input_params": [
+    {
+      "name": "member_id",
+      "type": "string",
+      "required": true,
+      "description": "The member ID to look up, e.g. '12345'."
+    }
+  ],
+  "steps": [
+    {
+      "step_id": "s0",
+      "action": "navigate",
+      "description": "Navigate to http://127.0.0.1:5000",
+      "url": "http://127.0.0.1:5000",
+      "locator": null,
+      "value": null,
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "s3",
+      "action": "click",
+      "description": "Member ID input field",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "input[name=\"member_id\"]",
+        "name": null,
+        "fallback": null
+      },
+      "value": null,
+      "timeout_ms": 30000
+    },
+    {
+      "step_id": "s4",
+      "action": "fill",
+      "description": "Type '12345' into the focused field",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "input[name=\"member_id\"]",
+        "name": null,
+        "fallback": null
+      },
+      "value": "12345",
+      "timeout_ms": 30000
+    },
+    {
+      "step_id": "s5",
+      "action": "click",
+      "description": "the Search button",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > form",
+        "name": null,
+        "fallback": null
+      },
+      "value": null,
+      "timeout_ms": 30000
+    },
+    {
+      "step_id": "s6",
+      "action": "click",
+      "description": "the Search button",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > form",
+        "name": null,
+        "fallback": null
+      },
+      "value": null,
+      "timeout_ms": 30000
+    },
+    {
+      "step_id": "s8",
+      "action": "click",
+      "description": "the Search button",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "tbody > tr > td:nth-of-type(3) > button",
+        "name": null,
+        "fallback": {
+          "strategy": "role",
+          "value": "button",
+          "name": "Search",
+          "fallback": null
+        }
+      },
+      "value": null,
+      "timeout_ms": 30000
+    },
+    {
+      "step_id": "s10",
+      "action": "click",
+      "description": "View Record link",
+      "url": null,
+      "locator": {
+        "strategy": "css",
+        "value": "tbody > tr:nth-of-type(2) > td:nth-of-type(4) > a",
+        "name": null,
+        "fallback": {
+          "strategy": "role",
+          "value": "link",
+          "name": "View Record",
+          "fallback": null
+        }
+      },
+      "value": null,
+      "timeout_ms": 30000
+    }
+  ],
+  "checkpoint": {
+    "description": "The balance value is visible on the member detail page.",
+    "locator": {
+      "strategy": "css",
+      "value": "#balance-value",
+      "name": null,
+      "fallback": null
+    }
+  },
+  "outputs": [
+    {
+      "name": "balance",
+      "type": "number",
+      "description": "The member's current savings balance.",
+      "extract_from": {
+        "strategy": "css",
+        "value": "#balance-value",
+        "name": null,
+        "fallback": null
+      }
+    }
+  ],
+  "known_outcomes": [
+    {
+      "name": "member_not_found",
+      "description": "No member exists with the given ID.",
+      "condition": {
+        "strategy": "text",
+        "value": "No member found for ID",
+        "name": null,
+        "fallback": null
+      },
+      "classification": "business_outcome",
+      "recovery": null
+    }
+  ],
+  "safety": {
+    "risk_level": "safe",
+    "requires_confirmation": false,
+    "notes": "Read-only lookup; no state change."
+  },
+  "metadata": {
+    "created_at": "2026-08-18T21:05:47.372399",
+    "discovered_by_model": "gpt-4o",
+    "last_replayed_at": null,
+    "replay_count": 0
+  }
+}

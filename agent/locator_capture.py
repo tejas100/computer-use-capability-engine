@@ -102,3 +102,57 @@ def capture_locator(page: Page, x: int, y: int) -> Locator:
         value=info["css"],
         fallback=fallback,
     )
+
+
+# Finds the nearest actually-interactive element (button/input/select/a)
+# to a given point and reports its center + distance/direction. Used
+# only on a miss, to turn "that click didn't work" into a precise
+# correction the model can act on directly, instead of an undirected
+# retry that (as observed) tends to drift further from the target with
+# each attempt rather than converging on it.
+_NEAREST_INTERACTIVE_JS = """
+([x, y]) => {
+    const candidates = Array.from(document.querySelectorAll('input, button, select, a, [role="button"]'));
+    let best = null;
+    let bestDist = Infinity;
+    for (const el of candidates) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dist = Math.hypot(cx - x, cy - y);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = {cx: Math.round(cx), cy: Math.round(cy), tag: el.tagName.toLowerCase(),
+                     text: (el.innerText || el.value || '').trim().slice(0, 40)};
+        }
+    }
+    if (!best) return null;
+    return {...best, distance: Math.round(bestDist)};
+}
+"""
+
+
+def find_nearest_interactive_hint(page: Page, x: int, y: int) -> str:
+    """
+    Return a short, human-readable correction hint pointing at the
+    nearest real interactive element to (x, y), e.g. "the nearest
+    clickable element is a button ~62px to the right and 20px up, at
+    approximately (650, 128)." Returns an empty string if no
+    interactive elements exist on the page.
+    """
+    result = page.evaluate(_NEAREST_INTERACTIVE_JS, [x, y])
+    if result is None:
+        return ""
+
+    dx = result["cx"] - x
+    dy = result["cy"] - y
+    horiz = f"{abs(dx)}px {'right' if dx > 0 else 'left'}" if dx else "0px horizontally"
+    vert = f"{abs(dy)}px {'down' if dy > 0 else 'up'}" if dy else "0px vertically"
+    label = f'"{result["text"]}"' if result["text"] else f"a {result['tag']}"
+
+    return (
+        f"The nearest actual clickable element to ({x}, {y}) is {label}, "
+        f"located {horiz} and {vert} from your click, at approximately "
+        f"({result['cx']}, {result['cy']})."
+    )
