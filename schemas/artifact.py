@@ -36,6 +36,13 @@ class LocatorStrategy(str, Enum):
     ROLE = "role"          # Playwright get_by_role(name=...)
     TEXT = "text"          # Playwright get_by_text(...)
     TEST_ID = "test_id"    # data-testid, rare on our legacy surface
+    ROW_CONTAINS = "row_contains"  # find the table row containing `value` (a param value,
+                                     # e.g. a member_id), then target the element named `name`
+                                     # (format "role::accessibleName") within that row. This is
+                                     # what makes a link/button inside a repeating result row
+                                     # identifiable by *which record* it belongs to, rather than
+                                     # by position (breaks on reordering) or static text alone
+                                     # (breaks once more than one row shares that text).
 
 
 class Locator(BaseModel):

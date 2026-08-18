@@ -25,9 +25,9 @@
       "timeout_ms": 5000
     },
     {
-      "step_id": "s3",
+      "step_id": "s2",
       "action": "click",
-      "description": "Member ID input field",
+      "description": "'Member ID' input field",
       "url": null,
       "locator": {
         "strategy": "css",
@@ -39,7 +39,7 @@
       "timeout_ms": 30000
     },
     {
-      "step_id": "s4",
+      "step_id": "s3",
       "action": "fill",
       "description": "Type '12345' into the focused field",
       "url": null,
@@ -55,35 +55,7 @@
     {
       "step_id": "s5",
       "action": "click",
-      "description": "the Search button",
-      "url": null,
-      "locator": {
-        "strategy": "css",
-        "value": "div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > form",
-        "name": null,
-        "fallback": null
-      },
-      "value": null,
-      "timeout_ms": 30000
-    },
-    {
-      "step_id": "s6",
-      "action": "click",
-      "description": "the Search button",
-      "url": null,
-      "locator": {
-        "strategy": "css",
-        "value": "div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > form",
-        "name": null,
-        "fallback": null
-      },
-      "value": null,
-      "timeout_ms": 30000
-    },
-    {
-      "step_id": "s8",
-      "action": "click",
-      "description": "the Search button",
+      "description": "Search button",
       "url": null,
       "locator": {
         "strategy": "css",
@@ -100,19 +72,24 @@
       "timeout_ms": 30000
     },
     {
-      "step_id": "s10",
+      "step_id": "s7",
       "action": "click",
-      "description": "View Record link",
+      "description": "the 'View Record' link",
       "url": null,
       "locator": {
-        "strategy": "css",
-        "value": "tbody > tr:nth-of-type(2) > td:nth-of-type(4) > a",
-        "name": null,
+        "strategy": "row_contains",
+        "value": "{{member_id}}",
+        "name": "link::View Record",
         "fallback": {
-          "strategy": "role",
-          "value": "link",
-          "name": "View Record",
-          "fallback": null
+          "strategy": "css",
+          "value": "tbody > tr:nth-of-type(2) > td:nth-of-type(4) > a",
+          "name": null,
+          "fallback": {
+            "strategy": "role",
+            "value": "link",
+            "name": "View Record",
+            "fallback": null
+          }
         }
       },
       "value": null,
@@ -161,7 +138,7 @@
     "notes": "Read-only lookup; no state change."
   },
   "metadata": {
-    "created_at": "2026-08-18T21:05:47.372399",
+    "created_at": "2026-08-18T22:01:18.384908",
     "discovered_by_model": "gpt-4o",
     "last_replayed_at": null,
     "replay_count": 0

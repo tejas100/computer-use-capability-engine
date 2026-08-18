@@ -61,6 +61,13 @@ class DiscoveryRun:
         self.steps: list[Step] = []
         self.pending_dialog: Optional[Dialog] = None
         self.pending_dialog_message: Optional[str] = None
+        # Literal values typed so far this run, keyed by the input
+        # field's `name` attribute where available (e.g. {"member_id":
+        # "12345"}). This is what lets a later ROW_CONTAINS locator's
+        # matched literal be parameterized back to {{member_id}} instead
+        # of staying hardcoded to this run's specific value -- see
+        # _parameterize_row_scoped_steps.
+        self.typed_values: dict[str, str] = {}
 
         self.run_id = f"{capability_name}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
         self.evidence_dir = EVIDENCE_DIR / self.run_id
@@ -220,28 +227,38 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
         return f"Dialog {decision.dialog_action}ed."
 
     if decision.action == AgentActionType.CLICK:
-        locator = capture_locator(page, decision.x, decision.y)
+        locator = capture_locator(page, decision.x, decision.y, known_values=list(run.typed_values.values()))
+        # ROW_CONTAINS locators carry their real CSS path in .fallback
+        # (see locator_capture.py) -- check non-interactivity against
+        # that, since .value for ROW_CONTAINS is the matched param
+        # value (e.g. "12345"), not a CSS path.
+        css_value_to_check = (
+            locator.fallback.value if locator.strategy == LocatorStrategy.ROW_CONTAINS and locator.fallback
+            else locator.value
+        )
         run.log({
             "event": "click_target_resolved", "step": step_num,
             "requested_xy": [decision.x, decision.y],
-            "resolved_css": locator.value,
+            "resolved_css": css_value_to_check,
+            "row_scoped": locator.strategy == LocatorStrategy.ROW_CONTAINS,
         })
         # A click that resolves to the page background, or to a
-        # non-interactive container (a <td>, a layout <div>), is
-        # treated as a miss -- not just an exact html/body hit. Only
+        # non-interactive container (a <td>, a layout <div>, a <form>),
+        # is treated as a miss -- not just an exact html/body hit. Only
         # actually-interactive elements (input/button/select/a) count
         # as landing on something clickable. This closes the gap where
-        # a click on "table > tbody > tr > td" was silently counted as
-        # a success even though clicking a table cell focuses nothing.
-        NON_INTERACTIVE_HINTS = ("html", "body", "table", "tbody", "tr", "td", "div")
+        # a click on "table > tbody > tr > td" or an empty <form> was
+        # silently counted as a success even though clicking it focuses
+        # or submits nothing meaningful.
+        NON_INTERACTIVE_HINTS = ("html", "body", "table", "tbody", "tr", "td", "div", "form")
         looks_non_interactive = any(
-            locator.value == h or locator.value.split(" > ")[-1].split(":")[0].split("[")[0] == h
+            css_value_to_check == h or css_value_to_check.split(" > ")[-1].split(":")[0].split("[")[0] == h
             for h in NON_INTERACTIVE_HINTS
         )
         if looks_non_interactive:
             hint = find_nearest_interactive_hint(page, decision.x, decision.y)
             raise RuntimeError(
-                f"Click at ({decision.x}, {decision.y}) resolved to '{locator.value}', which is "
+                f"Click at ({decision.x}, {decision.y}) resolved to '{css_value_to_check}', which is "
                 f"not an interactive element (input/button/select/link). This click will not focus "
                 f"anything. {hint}"
             )
@@ -252,7 +269,8 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             description=decision.target_description or decision.reasoning,
             locator=locator, timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
-        return f"Click SUCCEEDED -- landed on and focused '{locator.value}'."
+        row_note = " (row-scoped by content, not position)" if locator.strategy == LocatorStrategy.ROW_CONTAINS else ""
+        return f"Click SUCCEEDED -- landed on and focused '{css_value_to_check}'{row_note}."
 
     if decision.action == AgentActionType.TYPE:
         # The field must already be focused (typically by a preceding
@@ -272,8 +290,18 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
             )
         locator = _locator_for_focused_element(page)
         page.keyboard.type(decision.text)
+        # Remember this literal value, keyed by the field's name
+        # attribute when we have one (e.g. "member_id" -> "12345").
+        # If this value reappears later on the page (e.g. inside a
+        # results row), that's the signal a click target belongs to
+        # *this specific record*, not just "row N" -- and the field
+        # name is what lets us parameterize it back to {{member_id}}
+        # once the run succeeds.
+        field_name = locator.value.split('name="')[1].split('"')[0] if 'name="' in locator.value else locator.value
+        run.typed_values[field_name] = decision.text
         run.steps.append(Step(
             step_id=f"s{step_num}", action=ActionType.FILL,
+
             description=f"Type '{decision.text}' into {decision.target_description or 'the focused field'}",
             locator=locator, value=decision.text, timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
@@ -314,6 +342,35 @@ def _locator_for_focused_element(page: Page) -> Locator:
     return Locator(strategy=LocatorStrategy.CSS, value=info["css"])
 
 
+def _parameterize_row_scoped_steps(steps: list[Step], typed_values: dict[str, str], param_names: set[str]) -> list[Step]:
+    """
+    Replace a ROW_CONTAINS locator's literal matched value with
+    {{param_name}} wherever that literal came from typing into a field
+    whose name matches a declared input_param. This is what makes a
+    row-scoped locator generalize to other invocations: recorded as
+    "row containing '12345'" during discovery, but replayed as "row
+    containing {{member_id}}" for whatever member_id the caller passes.
+
+    Only field names that are BOTH in typed_values AND in the
+    capability's declared input_params get parameterized -- a typed
+    value with no matching declared param is left as a literal, since
+    we have no name to template it with (a conservative choice: an
+    un-parameterized literal is a visible, honest limitation; silently
+    guessing a param name would not be).
+    """
+    value_to_param = {
+        value: name for name, value in typed_values.items()
+        if name in param_names
+    }
+
+    for step in steps:
+        if step.locator and step.locator.strategy == LocatorStrategy.ROW_CONTAINS:
+            param_name = value_to_param.get(step.locator.value)
+            if param_name:
+                step.locator.value = "{{" + param_name + "}}"
+    return steps
+
+
 def _raise_escalation(run: DiscoveryRun, page: Page, decision: AgentAction) -> None:
     """Write an intervention request to evidence -- see replay/escalation.py
     for the shared escalation payload shape used by both discovery and replay."""
@@ -341,6 +398,8 @@ def _finalize_artifact(run: DiscoveryRun, outcome: AgentAction) -> Path:
     from agent.capability_specs import CAPABILITY_SPECS
 
     spec = CAPABILITY_SPECS[run.capability_name]
+    param_names = {p.name for p in spec["input_params"]}
+    parameterized_steps = _parameterize_row_scoped_steps(run.steps, run.typed_values, param_names)
 
     artifact = Artifact(
         capability=run.capability_name,
@@ -348,7 +407,7 @@ def _finalize_artifact(run: DiscoveryRun, outcome: AgentAction) -> Path:
         description=spec["description"],
         target=Target(base_url=run.base_url),
         input_params=spec["input_params"],
-        steps=run.steps,
+        steps=parameterized_steps,
         checkpoint=spec["checkpoint"],
         outputs=spec["outputs"],
         known_outcomes=spec["known_outcomes"],
