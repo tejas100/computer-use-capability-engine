@@ -72,8 +72,6 @@ Rules:
 - Look carefully at the screenshot before deciding. Coordinates are in CSS pixels from the \
 top-left of the viewport, using the overlaid grid to pinpoint the exact position.
 - Take one small, verifiable action at a time. Don't try to plan multiple steps into a single action.
-- If a native browser confirmation dialog is showing (you'll be told explicitly), use \
-'handle_dialog' to accept or dismiss it before doing anything else.
 - If you see a clear business outcome (e.g. "no member found", "requires supervisor approval", \
 a validation error) that answers the goal, treat that as task completion: use 'done' and \
 summarize the outcome, even if it isn't the "happy path."

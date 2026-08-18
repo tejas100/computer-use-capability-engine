@@ -59,14 +59,17 @@ class DiscoveryRun:
 
         self.history: list[str] = []
         self.steps: list[Step] = []
-        self.pending_dialog: Optional[Dialog] = None
-        self.pending_dialog_message: Optional[str] = None
+        # Native dialogs are now auto-accepted the instant they fire
+        # (see _handle_dialog_event) -- these just record that it
+        # happened, for annotating the triggering step's description.
+        self.dialog_occurred: bool = False
+        self.last_dialog_message: Optional[str] = None
         # Literal values typed so far this run, keyed by the input
         # field's `name` attribute where available (e.g. {"member_id":
         # "12345"}). This is what lets a later ROW_CONTAINS locator's
         # matched literal be parameterized back to {{member_id}} instead
         # of staying hardcoded to this run's specific value -- see
-        # _parameterize_row_scoped_steps.
+        # _parameterize_steps.
         self.typed_values: dict[str, str] = {}
 
         self.run_id = f"{capability_name}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
@@ -101,14 +104,24 @@ class DiscoveryRun:
 
 
 def _handle_dialog_event(run: DiscoveryRun, dialog: Dialog) -> None:
-    # Playwright requires a dialog to be accepted/dismissed before any
-    # further page interaction works. We don't auto-resolve it -- we
-    # stash it and let the LLM see + explicitly handle it, since a
-    # confirmation dialog is exactly the kind of "unexpected runtime
-    # condition" the assignment wants surfaced, not silently eaten.
-    run.pending_dialog = dialog
-    run.pending_dialog_message = dialog.message
-    run.log({"event": "dialog_appeared", "message": dialog.message})
+    # Native dialogs (confirm/alert/prompt) block Playwright's page
+    # entirely -- including the very click() call that triggered the
+    # dialog, which does not return until the dialog is resolved.
+    # Deferring the decision to "handle" it on a later loop iteration
+    # (an earlier version of this code did that) is therefore always
+    # too late: nothing, not even a screenshot, can run in between.
+    # This was confirmed directly -- page.click() on the submit button
+    # hung indefinitely until the dialog was dismissed, exactly
+    # matching a real run that only completed because a human manually
+    # clicked it. So the dialog is accepted immediately, unconditionally,
+    # right here in the event handler. What's still recorded for the
+    # artifact/evidence is the fact that a dialog occurred and its
+    # message -- see the "(dismisses a confirmation dialog...)" note
+    # appended to the triggering step's description in _execute_action.
+    dialog.accept()
+    run.log({"event": "dialog_auto_accepted", "message": dialog.message})
+    run.dialog_occurred = True
+    run.last_dialog_message = dialog.message
 
 
 def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Path]:
@@ -146,7 +159,7 @@ def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Pa
                 goal=goal,
                 screenshot_png=gridded_bytes,
                 history=run.history,
-                dialog_showing=run.pending_dialog_message,
+                dialog_showing=None,  # dialogs are now auto-accepted at the event level (see _handle_dialog_event) -- never reaches this point
             )
             run.log({
                 "event": "llm_decision", "step": step_num,
@@ -213,18 +226,12 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
     on the real target" from "this landed somewhere ambiguous" instead
     of just echoing the model's own stated intent back at it."""
     if decision.action == AgentActionType.HANDLE_DIALOG:
-        if run.pending_dialog is None:
-            raise RuntimeError("handle_dialog called but no dialog is pending")
-        if decision.dialog_action == "accept":
-            run.pending_dialog.accept()
-        else:
-            run.pending_dialog.dismiss()
-        run.log({"event": "dialog_handled", "action": decision.dialog_action})
-        run.pending_dialog = None
-        run.pending_dialog_message = None
-        if run.steps:
-            run.steps[-1].description += " (dismisses a confirmation dialog on submit)"
-        return f"Dialog {decision.dialog_action}ed."
+        # Dialogs are now auto-accepted the instant they fire (see
+        # _handle_dialog_event) -- there is never anything left for the
+        # model to explicitly handle by the time it could act. This
+        # branch is kept only so an older or unusually-prompted model
+        # response doesn't hard-crash the loop; it's a no-op by design.
+        return "No dialog action needed -- dialogs are auto-accepted immediately when they appear."
 
     if decision.action == AgentActionType.CLICK:
         locator = capture_locator(page, decision.x, decision.y, known_values=list(run.typed_values.values()))
@@ -250,11 +257,22 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
         # a click on "table > tbody > tr > td" or an empty <form> was
         # silently counted as a success even though clicking it focuses
         # or submits nothing meaningful.
-        NON_INTERACTIVE_HINTS = ("html", "body", "table", "tbody", "tr", "td", "div", "form")
-        looks_non_interactive = any(
-            css_value_to_check == h or css_value_to_check.split(" > ")[-1].split(":")[0].split("[")[0] == h
-            for h in NON_INTERACTIVE_HINTS
-        )
+        # Allowlist of genuinely interactive tags, rather than a
+        # blocklist of non-interactive ones. A blocklist has to be
+        # updated every time a click lands on some new non-interactive
+        # container (this list grew twice already -- form, then th --
+        # each time a new real failure surfaced one). An allowlist is
+        # the more robust rule: the set of tags that ARE meaningfully
+        # clickable is small and stable (form controls, links, and
+        # explicit role="button"), while the set of tags that merely
+        # CAN receive a click event without doing anything is large
+        # and open-ended (table structure, layout containers, text
+        # elements, etc.) -- so define the small set and treat
+        # everything else as non-interactive by default.
+        last_segment = css_value_to_check.split(" > ")[-1]
+        tag = last_segment.split(":")[0].split("[")[0]
+        INTERACTIVE_TAGS = ("input", "button", "select", "a", "textarea")
+        looks_non_interactive = css_value_to_check in ("html", "body") or tag not in INTERACTIVE_TAGS
         if looks_non_interactive:
             hint = find_nearest_interactive_hint(page, decision.x, decision.y)
             raise RuntimeError(
@@ -262,15 +280,27 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
                 f"not an interactive element (input/button/select/link). This click will not focus "
                 f"anything. {hint}"
             )
+        run.dialog_occurred = False  # reset before the click so we can tell if THIS click triggered one
         page.mouse.click(decision.x, decision.y)
         page.wait_for_load_state("networkidle", timeout=STEP_TIMEOUT_S * 1000)
+        step_description = decision.target_description or decision.reasoning
+        dialog_note = ""
+        if run.dialog_occurred:
+            # A native dialog fired during this click and was already
+            # auto-accepted by the event handler (see
+            # _handle_dialog_event) -- annotate the step so the saved
+            # artifact documents this happened, and known_outcomes for
+            # this capability (e.g. "confirmation_dialog") can still be
+            # checked against `run.last_dialog_message` downstream.
+            step_description += f" (auto-accepts a confirmation dialog: \"{run.last_dialog_message}\")"
+            dialog_note = f" A confirmation dialog (\"{run.last_dialog_message}\") appeared and was auto-accepted."
         run.steps.append(Step(
             step_id=f"s{step_num}", action=ActionType.CLICK,
-            description=decision.target_description or decision.reasoning,
+            description=step_description,
             locator=locator, timeout_ms=STEP_TIMEOUT_S * 1000,
         ))
         row_note = " (row-scoped by content, not position)" if locator.strategy == LocatorStrategy.ROW_CONTAINS else ""
-        return f"Click SUCCEEDED -- landed on and focused '{css_value_to_check}'{row_note}."
+        return f"Click SUCCEEDED -- landed on and focused '{css_value_to_check}'{row_note}.{dialog_note}"
 
     if decision.action == AgentActionType.TYPE:
         # The field must already be focused (typically by a preceding
@@ -296,7 +326,10 @@ def _execute_action(run: DiscoveryRun, page: Page, decision: AgentAction, step_n
         # results row), that's the signal a click target belongs to
         # *this specific record*, not just "row N" -- and the field
         # name is what lets us parameterize it back to {{member_id}}
-        # once the run succeeds.
+        # once the run succeeds (see _parameterize_row_scoped_steps,
+        # which also parameterizes this step's `value`, not just
+        # ROW_CONTAINS locators -- both need the same literal-to-param
+        # substitution once we know which input_param produced it).
         field_name = locator.value.split('name="')[1].split('"')[0] if 'name="' in locator.value else locator.value
         run.typed_values[field_name] = decision.text
         run.steps.append(Step(
@@ -342,14 +375,18 @@ def _locator_for_focused_element(page: Page) -> Locator:
     return Locator(strategy=LocatorStrategy.CSS, value=info["css"])
 
 
-def _parameterize_row_scoped_steps(steps: list[Step], typed_values: dict[str, str], param_names: set[str]) -> list[Step]:
+def _parameterize_steps(steps: list[Step], typed_values: dict[str, str], param_names: set[str]) -> list[Step]:
     """
-    Replace a ROW_CONTAINS locator's literal matched value with
-    {{param_name}} wherever that literal came from typing into a field
-    whose name matches a declared input_param. This is what makes a
-    row-scoped locator generalize to other invocations: recorded as
-    "row containing '12345'" during discovery, but replayed as "row
-    containing {{member_id}}" for whatever member_id the caller passes.
+    Replace literal values that came from typing into a declared
+    input_param field with {{param_name}} wherever they reappear:
+      - a ROW_CONTAINS locator's matched value (e.g. "row containing
+        '12345'" -> "row containing {{member_id}}"), and
+      - a FILL step's own typed value (e.g. value="12345" ->
+        value="{{member_id}}"), so replay types the *caller's* param
+        rather than replaying literally whatever was typed during
+        discovery.
+    This is what makes the recorded flow a genuine template rather
+    than a transcript of one specific run.
 
     Only field names that are BOTH in typed_values AND in the
     capability's declared input_params get parameterized -- a typed
@@ -368,6 +405,20 @@ def _parameterize_row_scoped_steps(steps: list[Step], typed_values: dict[str, st
             param_name = value_to_param.get(step.locator.value)
             if param_name:
                 step.locator.value = "{{" + param_name + "}}"
+        if step.action == ActionType.FILL and step.value:
+            param_name = value_to_param.get(step.value)
+            if param_name:
+                # Also fix the human-readable description, which was
+                # written at discovery time with the literal baked in
+                # (e.g. "Type '12345' into..."). Left un-rewritten, a
+                # reviewer reading the artifact after a replay for a
+                # DIFFERENT input would see a stale, misleading label
+                # even though the actual executed value is correct.
+                literal = step.value
+                step.value = "{{" + param_name + "}}"
+                step.description = step.description.replace(
+                    f"'{literal}'", "{{" + param_name + "}}"
+                )
     return steps
 
 
@@ -399,7 +450,7 @@ def _finalize_artifact(run: DiscoveryRun, outcome: AgentAction) -> Path:
 
     spec = CAPABILITY_SPECS[run.capability_name]
     param_names = {p.name for p in spec["input_params"]}
-    parameterized_steps = _parameterize_row_scoped_steps(run.steps, run.typed_values, param_names)
+    parameterized_steps = _parameterize_steps(run.steps, run.typed_values, param_names)
 
     artifact = Artifact(
         capability=run.capability_name,

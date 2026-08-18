@@ -174,25 +174,78 @@ def capture_locator(page: Page, x: int, y: int, known_values: list[str] | None =
 # correction the model can act on directly, instead of an undirected
 # retry that (as observed) tends to drift further from the target with
 # each attempt rather than converging on it.
+#
+# Conditional preference, not a blanket rule: a submit-type control
+# (button, input[type=submit], [role=button]) is only preferred over
+# the raw-nearest candidate when that nearest candidate is SPECIFICALLY
+# a text/number input that already has a non-empty value. An earlier
+# version of this logic tried "always prefer submit controls," which
+# regressed the case of an EMPTY field still needing to be filled
+# (wrongly pointing at a distant submit button instead of the nearby
+# empty field the user actually needs next) -- verified against both
+# scenarios before landing on this version. And an even earlier
+# version used a flat distance penalty, which wasn't reliably large
+# enough on a real vertically-stacked form to make button beat select
+# when both were candidates -- this conditional-override approach
+# avoids needing to tune a penalty magnitude at all.
 _NEAREST_INTERACTIVE_JS = """
 ([x, y]) => {
     const candidates = Array.from(document.querySelectorAll('input, button, select, a, [role="button"]'));
-    let best = null;
-    let bestDist = Infinity;
+
+    function isSubmitControl(el) {
+        return el.tagName === 'BUTTON' || (el.type || '').toLowerCase() === 'submit' ||
+               el.getAttribute('role') === 'button';
+    }
+    function isFilledTextInput(el) {
+        return el.tagName === 'INPUT' && !isSubmitControl(el) && (el.value || '').trim().length > 0;
+    }
+    function centerAndDist(el) {
+        const rect = el.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        return {cx, cy, dist: Math.hypot(cx - x, cy - y)};
+    }
+
+    let nearest = null;
+    let nearestInfo = null;
     for (const el of candidates) {
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) continue;
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dist = Math.hypot(cx - x, cy - y);
-        if (dist < bestDist) {
-            bestDist = dist;
-            best = {cx: Math.round(cx), cy: Math.round(cy), tag: el.tagName.toLowerCase(),
-                     text: (el.innerText || el.value || '').trim().slice(0, 40)};
+        const info = centerAndDist(el);
+        if (!nearest || info.dist < nearestInfo.dist) {
+            nearest = el;
+            nearestInfo = info;
         }
     }
-    if (!best) return null;
-    return {...best, distance: Math.round(bestDist)};
+    if (!nearest) return null;
+
+    let chosen = nearest;
+    let chosenInfo = nearestInfo;
+
+    if (isFilledTextInput(nearest)) {
+        let nearestSubmit = null;
+        let nearestSubmitInfo = null;
+        for (const el of candidates) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0 || !isSubmitControl(el)) continue;
+            const info = centerAndDist(el);
+            if (!nearestSubmit || info.dist < nearestSubmitInfo.dist) {
+                nearestSubmit = el;
+                nearestSubmitInfo = info;
+            }
+        }
+        if (nearestSubmit) {
+            chosen = nearestSubmit;
+            chosenInfo = nearestSubmitInfo;
+        }
+    }
+
+    return {
+        cx: Math.round(chosenInfo.cx), cy: Math.round(chosenInfo.cy),
+        tag: chosen.tagName.toLowerCase(),
+        text: (chosen.innerText || chosen.value || '').trim().slice(0, 40),
+        distance: Math.round(chosenInfo.dist),
+    };
 }
 """
 

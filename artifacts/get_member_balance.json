@@ -41,7 +41,7 @@
     {
       "step_id": "s3",
       "action": "fill",
-      "description": "Type '12345' into the focused field",
+      "description": "Type member id into the focused field",
       "url": null,
       "locator": {
         "strategy": "css",
@@ -49,7 +49,7 @@
         "name": null,
         "fallback": null
       },
-      "value": "12345",
+      "value": "{{member_id}}",
       "timeout_ms": 30000
     },
     {
