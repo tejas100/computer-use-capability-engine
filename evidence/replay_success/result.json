@@ -1,0 +1,54 @@
+{
+  "status": "success",
+  "capability": "get_member_balance",
+  "started_at": "2026-08-19T16:54:48.578953Z",
+  "finished_at": "2026-08-19T16:54:51.562083Z",
+  "outputs": {
+    "balance": 812.0
+  },
+  "outcome_name": null,
+  "outcome_description": null,
+  "failed_step_id": null,
+  "failed_step_description": null,
+  "expected": null,
+  "observed": null,
+  "error_detail": null,
+  "step_log": [
+    {
+      "step_id": "s0",
+      "action": "navigate",
+      "description": "Navigate to http://127.0.0.1:5000",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s2",
+      "action": "click",
+      "description": "Member ID input field",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s3",
+      "action": "fill",
+      "description": "Type {{member_id}} into the focused field",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s4",
+      "action": "click",
+      "description": "the 'Search' button",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s6",
+      "action": "click",
+      "description": "View Record link",
+      "status": "ok",
+      "detail": ""
+    }
+  ],
+  "failure_screenshot": null
+}

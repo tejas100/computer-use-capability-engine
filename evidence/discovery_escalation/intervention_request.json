@@ -1,0 +1,9 @@
+{
+  "intervention_id": "f46aee01-c66d-4183-94f7-970d620cc1f9",
+  "created_at": "2026-08-19T16:43:10.364927+00:00",
+  "capability_or_goal": "Look up member 12345, then click the Export button to download their statement as a PDF",
+  "current_step": 5,
+  "reason": "4 consecutive action failures with no progress: Click at (200, 155) resolved to 'table > tbody > tr:nth-of-type(2) > td:nth-of-type(1)', which is not an interactive element (input/button/select/link). This click will not focus anything. The nearest actual clickable element to (200, 155) is \"Update Phone Number\", located 43px right and 75px down from your click, at approximately (243, 230).",
+  "screenshot": "stuck_state.png",
+  "status": "awaiting_human"
+}

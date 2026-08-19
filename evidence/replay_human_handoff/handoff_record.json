@@ -1,0 +1,9 @@
+{
+  "intervention_id": "378507b4-37e6-43fe-8170-9b96d6b3f3c8",
+  "paused_at": "2026-08-19T17:00:03.282152+00:00",
+  "control": "automation",
+  "cdp_endpoint": "http://localhost:9222",
+  "resumed_at": "2026-08-19T17:01:21.467780+00:00",
+  "resume_method": "resume_signal",
+  "post_intervention_screenshot": "post_intervention.png"
+}

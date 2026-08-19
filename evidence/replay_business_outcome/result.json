@@ -1,0 +1,45 @@
+{
+  "status": "business_outcome",
+  "capability": "get_member_balance",
+  "started_at": "2026-08-19T16:56:50.461573Z",
+  "finished_at": "2026-08-19T16:56:52.695712Z",
+  "outputs": {},
+  "outcome_name": "member_not_found",
+  "outcome_description": "No member exists with the given ID.",
+  "failed_step_id": null,
+  "failed_step_description": null,
+  "expected": null,
+  "observed": null,
+  "error_detail": null,
+  "step_log": [
+    {
+      "step_id": "s0",
+      "action": "navigate",
+      "description": "Navigate to http://127.0.0.1:5000",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s2",
+      "action": "click",
+      "description": "Member ID input field",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s3",
+      "action": "fill",
+      "description": "Type {{member_id}} into the focused field",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "step_id": "s4",
+      "action": "click",
+      "description": "the 'Search' button",
+      "status": "ok",
+      "detail": ""
+    }
+  ],
+  "failure_screenshot": null
+}
