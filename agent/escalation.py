@@ -6,7 +6,7 @@ carrying enough context for a human operator to act on it.
 Scope note (see /REPORT.md section 5): a full real-time co-browsing
 operator console is out of scope per the brief. What's real here is
 the escalation payload itself, and the pause/resume contract -- see
-operator/handoff.py for how a human actually takes control of the
+human_handoff/handoff.py for how a human actually takes control of the
 *same* live session and hands it back. This module only handles
 raising and recording the request.
 """

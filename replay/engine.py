@@ -41,6 +41,11 @@ from replay.result import ReplayResult, ReplayStatus, StepLogEntry
 from schemas.artifact import (
     Artifact, ActionType, KnownOutcome, OutcomeClassification, ParamType,
 )
+from guardrails.allowlist import AllowlistPolicy, PolicyViolation
+from guardrails.confirmation import check_confirmation, ConfirmationRequired
+from guardrails.redaction import redact_dict
+from agent.escalation import raise_intervention_request
+from human_handoff.handoff import pause_for_human
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
@@ -130,7 +135,10 @@ def _extract_outputs(page: Page, artifact: Artifact, params: dict) -> dict[str, 
     return outputs
 
 
-def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayResult:
+def run_replay(
+    capability: str, params: dict, headless: bool = True, confirmed: bool = False,
+    allow_human_escalation: bool = True,
+) -> ReplayResult:
     artifact = load_artifact(capability)
     result = ReplayResult(status=ReplayStatus.HARD_FAILURE, capability=capability)  # default until proven otherwise
 
@@ -141,12 +149,39 @@ def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayRe
         result.mark_finished()
         return result
 
+    # Guardrail checks, both before any browser session is opened:
+    # a risky action must be explicitly confirmed, and a policy must
+    # exist and be loadable at all -- refusing to run without one is
+    # the safe default, not an oversight.
+    try:
+        check_confirmation(artifact, confirmed)
+    except ConfirmationRequired as e:
+        result.status = ReplayStatus.HARD_FAILURE
+        result.error_detail = str(e)
+        result.mark_finished()
+        return result
+
+    try:
+        policy = AllowlistPolicy.load()
+    except FileNotFoundError as e:
+        result.error_detail = str(e)
+        result.mark_finished()
+        return result
+
     run_id = f"replay_{capability}_{result.started_at.strftime('%Y%m%dT%H%M%SZ')}"
     evidence_dir = EVIDENCE_DIR / run_id
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless, channel="chrome")
+        # --remote-debugging-port is what makes a human handoff (see
+        # human_handoff/handoff.py) possible at all -- it opens a CDP
+        # endpoint any external tool (including a human's own Chrome,
+        # via chrome://inspect) can connect to and control THIS exact
+        # browser instance, not a fresh one.
+        browser = p.chromium.launch(
+            headless=headless, channel="chrome",
+            args=["--remote-debugging-port=9222"],
+        )
         page = browser.new_page(viewport={"width": 1280, "height": 900}, device_scale_factor=1)
 
         # Register the dialog handler BEFORE any step runs, so a
@@ -167,8 +202,29 @@ def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayRe
                     description=step.description, status="ok",
                 )
                 try:
-                    _execute_step(page, step, params)
+                    _execute_step(page, step, params, policy)
                     result.step_log.append(step_log)
+                except PolicyViolation as e:
+                    # A policy violation is ALWAYS a hard failure --
+                    # never reinterpreted as a business outcome, never
+                    # retried, never recovered from. This check runs
+                    # before the generic exception handler below so a
+                    # blocked action can't accidentally be explained
+                    # away by a known_outcome condition that happens to
+                    # match the page state at that moment.
+                    step_log.status = "failed"
+                    step_log.detail = f"POLICY VIOLATION: {e}"
+                    result.step_log.append(step_log)
+                    result.status = ReplayStatus.HARD_FAILURE
+                    result.failed_step_id = step.step_id
+                    result.failed_step_description = step.description
+                    result.expected = "Action within the allowlist policy"
+                    result.observed = str(e)
+                    result.error_detail = str(e)
+                    _capture_failure_evidence(page, evidence_dir, result)
+                    browser.close()
+                    result.mark_finished()
+                    return result
                 except Exception as e:
                     step_log.status = "failed"
                     step_log.detail = str(e)
@@ -190,6 +246,28 @@ def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayRe
                         browser.close()
                         return result
                     else:
+                        if allow_human_escalation:
+                            resumed = _escalate_and_wait(
+                                page, artifact, evidence_dir, step.step_id,
+                                reason=f"Step '{step.description}' failed: {e}",
+                            )
+                            if resumed:
+                                # The human may have fixed the page state
+                                # manually (e.g. dismissed an unexpected
+                                # element, corrected a stuck form). Re-check
+                                # outcomes/checkpoint rather than assuming
+                                # anything -- same discipline as every other
+                                # step, never blindly proceed.
+                                outcome_after = _check_known_outcomes(page, artifact, params)
+                                if outcome_after and outcome_after.classification == OutcomeClassification.BUSINESS_OUTCOME:
+                                    _finalize_business_outcome(result, outcome_after)
+                                    browser.close()
+                                    return result
+                                step_log.status = "recovered"
+                                step_log.detail = f"Resolved via human intervention: {e}"
+                                continue  # re-attempt the loop from the NEXT step naturally,
+                                          # since this step's effect (if any) already happened
+                                          # on the page the human was just controlling
                         result.failed_step_id = step.step_id
                         result.failed_step_description = step.description
                         result.expected = f"Step '{step.description}' to succeed"
@@ -213,6 +291,22 @@ def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayRe
             try:
                 resolve_locator(page, artifact.checkpoint.locator, params, timeout_ms=5000)
             except Exception as e:
+                if allow_human_escalation:
+                    resumed = _escalate_and_wait(
+                        page, artifact, evidence_dir, "checkpoint",
+                        reason=f"Checkpoint '{artifact.checkpoint.description}' did not resolve: {e}",
+                    )
+                    if resumed:
+                        try:
+                            resolve_locator(page, artifact.checkpoint.locator, params, timeout_ms=5000)
+                            outputs = _extract_outputs(page, artifact, params)
+                            result.status = ReplayStatus.SUCCESS
+                            result.outputs = outputs
+                            browser.close()
+                            result.mark_finished()
+                            return result
+                        except Exception as e2:
+                            e = e2  # fall through to hard failure below with the latest error
                 result.status = ReplayStatus.HARD_FAILURE
                 result.failed_step_id = "checkpoint"
                 result.failed_step_description = artifact.checkpoint.description
@@ -239,8 +333,41 @@ def run_replay(capability: str, params: dict, headless: bool = True) -> ReplayRe
             return result
 
 
-def _execute_step(page: Page, step, params: dict) -> None:
+def _escalate_and_wait(page: Page, artifact: Artifact, evidence_dir: Path, step_id: str, reason: str) -> bool:
+    """
+    Raise an intervention request and pause replay, ceding control of
+    the live session to a human (see human_handoff/handoff.py). Returns
+    True if the human resumed (signaled done), False if the wait timed
+    out with no response. Does not itself decide what happens after --
+    the caller re-checks the checkpoint/outcome once this returns True,
+    since the human may have fixed the underlying problem.
+    """
+    screenshot_path = evidence_dir / f"escalation_{step_id}.png"
+    try:
+        page.screenshot(path=str(screenshot_path))
+    except Exception:
+        pass
+
+    intervention = raise_intervention_request(
+        capability_or_goal=artifact.capability,
+        current_step=int(step_id.lstrip("s")) if step_id.lstrip("s").isdigit() else 0,
+        reason=reason,
+        screenshot_path=screenshot_path,
+        evidence_dir=evidence_dir,
+    )
+    handoff_record = pause_for_human(page, evidence_dir, intervention)
+    return handoff_record.get("resume_method") == "resume_signal"
+
+
+def _execute_step(page: Page, step, params: dict, policy: AllowlistPolicy) -> None:
+    # Enforced on every step, regardless of action type -- an
+    # artifact that somehow contains a step type outside the allowlist
+    # (e.g. from a hand-edited or malicious artifact file) is refused
+    # before any Playwright call is made, not after.
+    policy.check_action_type(step.action.value)
+
     if step.action == ActionType.NAVIGATE:
+        policy.check_navigation(step.url)
         page.goto(step.url)
         page.wait_for_load_state("networkidle", timeout=step.timeout_ms)
         return
@@ -299,9 +426,24 @@ if __name__ == "__main__":
     parser.add_argument("--capability", required=True, help="Capability name, e.g. get_member_balance")
     parser.add_argument("--params", required=True, help='JSON params, e.g. \'{"member_id": "12345"}\'')
     parser.add_argument("--headed", action="store_true", help="Show the browser window instead of headless")
+    parser.add_argument("--confirm-risky-action", action="store_true",
+                         help="Required to replay a capability marked safety.risk_level=risky "
+                              "(see guardrails/confirmation.py). Ignored for safe capabilities.")
+    parser.add_argument("--no-human-escalation", action="store_true",
+                         help="On a hard failure, fail immediately instead of pausing to offer "
+                              "a human handoff (see human_handoff/handoff.py). Useful for CI or "
+                              "unattended runs where no human is available to respond.")
     args = parser.parse_args()
 
     params = json.loads(args.params)
-    result = run_replay(args.capability, params, headless=not args.headed)
+    result = run_replay(
+        args.capability, params, headless=not args.headed, confirmed=args.confirm_risky_action,
+        allow_human_escalation=not args.no_human_escalation,
+    )
 
-    print(json.dumps(result.model_dump(mode="json"), indent=2))
+    # Redact before this ever reaches stdout/a log file -- the last
+    # possible point before the result leaves the process, per section
+    # 3.4's "never persist secrets or raw sensitive data... into
+    # artifacts or logs."
+    output = redact_dict(result.model_dump(mode="json"))
+    print(json.dumps(output, indent=2))

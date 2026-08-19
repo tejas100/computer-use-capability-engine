@@ -129,7 +129,13 @@ def run_discovery(goal: str, capability_name: str, base_url: str) -> Optional[Pa
     run.log({"event": "discovery_start", "goal": goal, "capability_name": capability_name, "base_url": base_url})
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="chrome")
+        # --remote-debugging-port opens a CDP endpoint a human can
+        # connect to for a real session handoff -- see
+        # human_handoff/handoff.py. Same mechanism used by replay.
+        browser = p.chromium.launch(
+            headless=False, channel="chrome",
+            args=["--remote-debugging-port=9222"],
+        )
         page = browser.new_page(
             viewport={"width": 1280, "height": 900},
             device_scale_factor=1,
